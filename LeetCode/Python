@@ -14,6 +14,7 @@ Input: s = "leetcode"
 Output: "leotcede"
 """
 
+#**Basic : use List Comprehension**
 class Solution:
     def reverseVowels(self, s: str) -> str:
 
@@ -31,3 +32,21 @@ class Solution:
                 basket.append(x)
 
         return "".join(basket)
+
+#**Improved : use Generator and Set to minimize memory usage**
+class Solution:
+    def reverseVowels(self, s: str) -> str:
+
+        vowels = ("aeiouAEIOU")
+        reverse_str = (x for x in reversed(s) if x in vowels)
+
+        result = []
+        for x in s:
+            if x in vowels:
+                result.append(next(reverse_str))             
+            else: 
+                result.append(x)
+
+        return "".join(result)
+
+#Advanced : Use while-lopp and two-pointer method 
