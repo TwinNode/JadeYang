@@ -4,8 +4,14 @@ def findHeavyAnimals(animals: pd.DataFrame) -> pd.DataFrame:
     animals = animals.loc[(animals.weight > 100)].sort_values(by='weight', ascending = False)
     return animals[['name']] # to return as DataFrame
 
-  #improved answer
+  #one-liner
   return animals[animals['weight'] > 100].sort_values(['weight'],ascending=False)[['name']]
+
+  #method chaining
+  return (animals
+            [animals['weight'] > 100]
+            .sort_values(by='weight', ascending=False)
+            [['name']])
 
 """
 Example 1:
