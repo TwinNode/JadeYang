@@ -1,0 +1,160 @@
+---
+title: "Statistical inference with the GSS data"
+output: pdf_document
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(haven)
+library(knitr)
+```
+
+### Load data
+
+```{r load-data}
+load("gss2024.Rdata")
+```
+
+* * *
+
+## Part 1: Data
+
+### Summary of the dataset
+The General Social Survey (GSS) gathers data to monitor and explain trends and constants in attitude, behaviors, and attributes on contemporary American society. in GSS2024 dataset, the sample is at least 18 years old adults in United states who live in noninstitutional housing at the time of interviewing or recruitment. The total sample consists of 3,986 respondents. This sample is a combination of two distinct groups: the primary GSS Cross-section sample (3,309 respondents), which uses a full-probability design, and an additional AmeriSpeak oversample (677 respondents) specifically designed to ensure adequate representation of Black, Hispanic, and Asian/Pacific Islander populations. By integrating these two frames, the 2024 GSS achieves a more comprehensive and representative view of the diverse U.S. adult population.
+
+### Sampling Methodology
+As mentioned above, The GSS sample were collected in two groups. 2024 GSS Cross-section group(aka traditional survey) and AmeriSpeak Oversample(aka online survey). Both samples were Adults 18 or older in U.S. who live in noninstitutional housing while the panelists for the online survey was for Black, Hispanic, or Asian/Pacific Islander to reflect the multi-racial population. The first traditional GSS Cross-section administers a full-probability sample approach with samples created from an adapted form of the United States Postal Service (USPS) metropolitan statistical area/county frame area. There is a total of 3,986 respondents and the sample was collected via mainly face-to-face and supplemented with telephone. The web survey has 677 respondents and 100% conducted via web. This makes a total of 3,986 respondents. Since the research is a observational study with no random assignment, so we can only use the output as to find a association, not a causality. 
+
+### Primary Focus
+In this analysis, it primarily focuses on association between marital status and religion. Since the analysis includes two categorical variables(marital status, religion), we will conduct whether there is a meaningful association or not using a chi-square independence test. Since the sample was randomly selected and 3,986 is less than 10% of U.S. population, this guarantees independence. The expected counts are all at least 5. We can assume the sample represent the U.S. population well and able to generalize the outcome of the study since it was a full-probability sample approach. Therefore, we are safely proceed the analysis.
+
+### Limits and Potential Bias
+The 2024 GSS experienced a combined response rate of 37.7% (AAPOR RR3), which is notably lower than the historical standard of over 50% that the GSS consistently achieved in the past. This decline presents a potential risk of non-response bias; if non-respondents possess systematically different characteristics regarding their religious beliefs or marital behaviors compared to those who participated, our findings may not perfectly reflect the entire U.S. population.
+
+Furthermore, the 2024 survey utilized a mixed-mode approach which reflects a methodological shifts from the traditional in-person-only design. To mitigate the potential for non-response error and to maintain comparability with historical trends, the GSS applies post-stratification ranking weights. These weights are designed to adjust for demographic differences and reduce the impact of the declining response rates observed in modern survey research.
+
+
+* * *
+
+## Part 2: Research question
+### Research Question:
+Do individual with no religious affiliation ("atheist") tend to be "never married" more frequently than those with a religious affiliation ("believers") in the U.S.? In other words, is there a difference in the proportion of never-married individuals based on their religious affiliation?
+
+### Interest of the Study
+Understanding the relationship between religious affiliation and marital status is essential for interpreting broader trends in modern society and lifestyle shifts. As secularization influences various aspects of life, examining whether religious identity is associated with traditional marriage patterns offers valuable insights. These findings may be of particular interest to policymakers, urban planners, and marketers, as they seek to understand the changing demographics and housing needs of the U.S. population.
+
+### Variables and Methodology
+This study utilizes two primary categorical variables:
+- __Marital Status__ (`marriage`): Categorized into *Never Married* and *Ever Married* (which includes divorced, separated, widows, and others, excluding NAs).
+- __Religious Affiliation__ (`religious``): Categorized into *Atheist* and *Believer* (Which includes all religious denominations, excluding NAs).
+
+### Limits and Assumptions:
+While our use of a full-probability sample allows for generalization to the U.S. adult population, this study is observational with no random assignment; therefore, no causal inferences can be made. Regarding the interpretation of the data, we cannot distinguish whether a respondent's status of "never married" was a result of personal choice or external circumstances; thus, we treat this status as a broad lifestyle outcome. Similarly, we assume the reported religious status reflects the respondent's current personal alignment at the time of the survey.
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+```{r 2024 GSS data}
+df <- gss2024 %>%
+  select(age, sex, relig16, marital) %>%
+  mutate(
+    religion = case_when(
+      relig16 == 4   ~ "Atheist",
+      is.na(relig16) ~ NA_character_,
+      TRUE           ~ "Believer"
+    )) %>%
+  mutate (
+    marriage = case_when(
+      marital == 5   ~ "Never Married",
+      is.na(marital) ~ NA_character_,
+      TRUE           ~ "Ever Married"
+    ))
+```
+
+```{r bar chart}
+plot_data <- df %>%
+  filter(!is.na(religion), !is.na(marriage))
+ggplot(plot_data, aes(x=religion, fill=marriage))+
+    geom_bar(position="fill") +
+    labs(y="proportion", x="religions Affilation", 
+         title="Marriage Status by Religion")+ theme_minimal()
+```
+
+### Interpretation
+
+<center>
+
+**[Table 1] Contingency Table**
+| Marital Status | Atheist | Believer | Total |
+| :--- | :---: | :---: | :---: |
+| **Ever Married** | 297 | 2313 | 2610 |
+| **Never Married** | 261 | 1044 | 1305 |
+| **Total** | 558 | 3357 | 3915 |
+
+</center>
+
+Based on the contingency table (Table 1) and *Marital Status by Religion* bar chart, we observe a higher proportion of 'Never Married' individuals in the atheist group compared to the believer group. 
+
+This visual evidence serves as a basis for conducting a formal hypothesis test to determine if this observed difference is statistically significant.
+
+To confirm whether this visual trend reflects a true relationship in the population or occurred by chance, we performed a formal Chi-square of independence in the subsequent section.
+
+
+* * *
+
+## Part 4: Inference
+
+### Hypotheses
+Null Hypothesis (H0) : $P nevermarried, atheist - P nevermarried, believer  = 0$ Marital status and religious affiliation are independent.
+Alternative Hypothesis (Ha) : $P nevermarried, atheist - P nevermarried, believer \neq 0$ Marital status and religious affiliation are not independent.
+
+Expected Count Calculation
+Using the formula $$E_{ij} = \frac{(\text{Row Total} \times \text{Column Total})}{\text{Grand Total}}$$
+
+### Discussion of Results
+
+```{r hypothesis test}
+inference(y=marriage, x=religion, data=df, statistic="proportion",
+          type="ht", method="theoretical", success="Never Married", 
+          alternative = "twosided", null=0)
+```
+
+- __Sample Distribution__: This confirms our previous EDA findings, the 'Never Married' category occupies a larger relative portion of the atheist column, which suggests a potential association between religious identity and marital status. 
+
+- __Null Distribution__: The red line represents our observed difference in proportions($\hat{P}_{\text{nevermarried, atheist}}$-$\hat{P}_{\text{nevermarried, believer}}$). Since this line is positioned in the extreme tail of the normal distribution centered at 0, it indicates that the observed difference is highly unlikely to have occurred by random chance if the null hypothesis was true.
+
+### Inference Condition
+Observed Proportion
+- $\hat{P}_{\text{nevermarried, atheist}}$ = 261 / (261+297) = 0.468
+- $\hat{P}_{\text{nevermarried, believer}}$ = 1044 / (1044+2313) = 0.311
+
+Expected Proportion
+- $\hat{P} nevermarried$ = (261+1044) / (261+1044+297+2313) = 0.333
+
+Expected Count
+- nevermarried, believer : 0.333 * (2313+1044) = 1,117.9
+- nevermarried, atheist : 0.333 * (297+261) = 185.8
+
+Independence
+The sample was randomly selected and the respondent's marital, religious affiliations do not influence other respondent's answer. The sample size of believers is 3,357 and of atheist is 558. Both are well under 10% of its respective population in U.S.
+
+Expected Count Condition
+The expected count in the contingency table is at least 5. Therefore, we can safely proceed the analysis with this data.
+
+### Results
+- X2 statistics: 52.2
+- Degrees of freedom(*df*): 1
+- P-value: $\approx$ 0 (5.012e-13)
+```{r}
+chi_result <- chisq.test(table(df$religion, df$marriage))
+chi_result
+```
+### Conclusion of the Study
+Since the p-value is significantly lower than significance level($\alpha$=0.05), we reject the null hypothesis in favor of the alternative hypothesis. The data provides convincing evidence of a strong association between marital status and religious affiliation. Furthermore, the higher proportion of 'Never Married' individuals among atheists ($\hat{P}_{\text{atheist}} = 0.468$) compared to believers ($\hat{P}_{\text{believer}}=0.311$) indicates a distinct difference ($\approx$ 16%) in lifestyle patterns between the two groups. Based on these findings, we can generalize that individuals with no religious affiliation in United States tend to remain unmarried at a higher rate than those with a religious affiliation.
