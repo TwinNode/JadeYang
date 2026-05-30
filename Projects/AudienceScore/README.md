@@ -23,7 +23,7 @@ Finally, I validated the model's predictive performance using out-of-sample data
 ## Technologies Used 
 
 - **Language**: R
-- **Core Functions:** * **Analysis:** `lm()`, `step()`, `predict()`
+- **Core Functions:**  * **Analysis:** `lm()`, `step()`, `predict()`
     * **Visualization & Diagnosis:** `ggplot2` (`geom_jitter`), `GGally` (`ggpairs`), `hist()`, `qqnorm()`, `qqline()`
 
 ## Data Sources
