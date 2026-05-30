@@ -30,3 +30,4 @@ Finally, I validated the model's predictive performance using out-of-sample data
 
 - **Main Dataset, Markdown Structure** : Duke University *Linear Regression and Modeling* (via Coursera)
 - **Validation Data** : Rotten Tomatoes, IMDb
+- *Note: The `.RData` file is not included in this repository to respect the course's data usage policies and copyright. The analysis can be reproduced by running the provided `reg_model_project.Rmd` script with the original dataset provided in the course.*
