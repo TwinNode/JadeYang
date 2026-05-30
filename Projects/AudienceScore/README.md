@@ -1,4 +1,4 @@
-# Predicting Audience Score Project
+# Predicting Movie Audience Score
 
 There are many factors contributing to a movie's success and popularity. Our primary research question is whether a director's previous track record is associated with the audience reception of their subsequent projects.
 In this analysis, I constructed a multiple linear regression model to predict audience scores. To identify significant predictors, I utilized a backward elimination methodology and performed rigorous model diagnostics to ensure all linear regression assumptions were met.
