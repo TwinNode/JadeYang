@@ -1,0 +1,333 @@
+---
+title: "Modeling and prediction for movies"
+output:
+  pdf_document: default
+  html_document:
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Predicting Movie Audience Score
+
+A movie's commercial and critical success is often defined by its reception among audiences. While numerous factors such as the production studio, and critic's review are commonly recognized as key determinants of an audience score, the influence of a director's historical performance remains as intriguing area of investigation. This study explores the hypothesis that a director's past success, measured by the average audience s core of their previous works, is associated with the reception of their subsequent projects. By analyzing this and other production-related variables, we aim to determine which factors most effectively predict audience score, ultimately uncovering the primary predictor of audience response.
+
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(stringr)
+library(GGally)
+library(car)
+library(broom)
+```
+
+### Load data
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+
+* * *
+
+## Part 1: Data
+
+The dataset consists of 651 movies randomly sampled from those released between 1970 and 2014. The information was aggregated from two primary sources: Rotten Tomatoes, a well-known American review-aggregation website, and IMDb, the Internet Movie Database. As this is an observational study with no random assignment, we cannot infer a causal relationship; our findings are limited to identifying significant associations between variables. Regarding generalization, the sample is heavily dominated by productions from major Hollywood studios, such as Warner Bros., Paramount, and Universal. Consequently, the results of this study are representative of the Northern American film market and can be generalized to movies released in the United States between 1970 and 2014. These findings may have limited applicability to international film markets where industry dynamics and audience preferences may differ.
+
+The response variable(`audience_score`) ranges from 11 to 97 points, with a median score of 65. The histogram reveals a slightly __left-skewed distribution__, which is common in rating data where scores are bounded from at 100. Given the robust sample size of 651, this slight skewness is not expected to significantly impact the validity of our linear regression model. A detailed examination of the relationship between the response and explanatory variables is provided in Part 3: Exploratory Data Analysis.
+
+
+```{r summary of dataset}
+summary(movies$audience_score)
+hist(movies$audience_score, main = "Histogram of Audience Score",
+     xlab="Audience Score", ylab="Count")
+```
+
+The original `studio` variable contains high cardinality, which can lead to over-fitting. To enhance model efficiency, I consolidated various subsidiaries into six major studios, grouping remaining smaller studios into an 'Other' category.
+
+```{r Preprocessing Studio Names}
+movies <- movies %>%
+  mutate(studio_simple = case_when(
+    str_detect(studio, "Warner") ~ "Warner Bros",
+    str_detect(studio, "Paramount") ~ "Paramount",
+    str_detect(studio, "Sony") ~ "Sony",
+    str_detect(studio, "Universal") ~ "Universal",
+    str_detect(studio, "Fox") ~ "20th Century Fox",
+    TRUE ~ "Other"
+  ))
+```
+
+
+It is hypothesized that a director's historical performance influences their current projects. Therefore, I calculated the `avg_director_score` for each director. *Note: For directors with only one film in the dataset, this score reflects their individual movie's audience score, which may introduce self-correlation in the model.*
+
+```{r Director score based on avg audience score of their movies}
+avg_director_score <- movies %>%
+  group_by(director) %>%
+  summarise(avg_director_score = mean(audience_score, na.rm=TRUE))
+
+movies <- movies %>%
+  left_join(avg_director_score, by='director')
+```
+
+
+
+* * *
+
+## Part 2: Research question
+
+### Question: Does a director's average audience score from their previous works (`avg_director_score`) serve as a significant predictor for the audience score of their subsequent movies?
+
+This question is of significant interest to various stakeholders, including studio executives, budget decision-makers, theater managers, and potential moviegoers who rely on audience reviews to guide their viewing choices. This study addresses the widely held belief that a director's track record (i.e., their historical success) translates into future commercial and critical performance. While conventional wisdom assumes that directors with higher historical ratings are more likely to achieve success with their new projects, this study aims to empirically test whether `avg_director_score` is a robust predictor of future audience scores when compared to other film-related characteristics.
+
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+
+To evaluate the linear relationships between the response variable(`audience_score`) and various explanatory variables, we utilize the `ggpairs()` function to visualize correlations and calculate correlation coefficients. 
+*Note: To maintain analytical focus, only relevant numerical variables were selected, while identifiers such as movie URLs or actor names were excluded.*
+
+
+```{r Ggpairs Numerical Variables Only, results='hide', message=FALSE, warning=FALSE}
+movies %>%
+  select(audience_score, critics_score, runtime, imdb_rating, avg_director_score) %>%
+  ggpairs()
+```
+
+
+The `ggpairs` plot provides a visual summary of the relationship between `audience_score` and key numerical explanatory variables. Notably, the high correlation between `audience_score`, `critics_score`, and `imdb_rating` confirms that these factors are closely aligned with audience reception. More importantly, the scatter plot between `audience_score` and `avg_director_score` reveals a positive linear trend, suggesting that a director's historical performance may indeed be a significant indicator of future success. These numerical insights will serve as the foundation for our predictive model.
+
+
+```{r studio comparion}
+
+ggplot(data=movies, aes(x=studio_simple, y=audience_score))+
+  geom_boxplot()+
+  geom_jitter(width=0.1, alpha=0.3)
+
+```
+
+The boxplot illustrates the distribution of `audience_score` across different production studios. Universal exhibits the highest median score, suggesting generally favorable audience reception for its films, while Paramount shows a relatively lower median score. Notably, most studios display wide interquartile ranges and elongated tails, indicating significant variability in audience responses regardless of the studio. Specifically, 20th Century Fox displays the largest spread, reflecting a high variance in audience ratings. Interestingly, the 'Other' category maintains a relatively high median, comparable to major studios. This observation suggests that studio affiliation alone may not be a dominant factor in predicting audience scores, reinforcing the need to investigate other variables, such as director performance (`avg_director_score`), to better explain audience response.
+
+
+* * *
+
+## Part 4: Modeling
+
+### Model Selection Procedure
+
+We begin by establishing a full model that includes all potentially relevant predictors, excluding identifiers such as release dates, actor names, and URLs. To identify the most efficient and parsimonious set of predictors, we employ the `step()` function, which utilizes a backward elimination procedure based on the Akaike Information Criterion (AIC). This approach systematically removes variables to minimize AIC, thereby reducing model complexity without sacrificing predictive accuracy. Finally, we compare the adjusted $R^2$ values of the initial and final models to evaluate the trade-off between model simplicity and goodness-of-fit.
+
+
+```{r adjusted R2 Elimination with no inappropriate data, results='hide'}
+
+initial_model <- lm(audience_score ~ title_type+genre+runtime+mpaa_rating+studio_simple+
+imdb_rating+imdb_num_votes+critics_score+audience_rating+best_pic_nom+best_pic_win+
+  best_dir_win+top200_box+avg_director_score, data=movies)
+
+summary(initial_model)
+
+final_model <- step(initial_model, direction="backward")
+
+```
+```{r Parsimonious Model Review}
+summary(initial_model)$adj.r.squared
+summary(final_model)$adj.r.squared
+```
+
+
+Using the `step()` function, I reduced the number of predictors from 14 to 7. Interestingly, the adjusted $R^2$ __increased__ by approximately __0.0007__, indicating that a more parsimonious model - composed of only significant variables- actually enhances predictive performance. This serves as a practical demonstration of Occam's razor, suggesting that a simpler model can effectively maintain, or even improve by focusing solely on necessary predictors.
+
+
+
+### Multicollinearity Assessment
+
+We next assess potential multicollinearity using Variance Inflation Factors (VIF) using `vif()` function. High multicollinearity can inflate the standard errors of coefficient estimates, potentially biasing our model. 
+
+
+```{r multicollinearity check}
+vif(final_model)
+```
+
+As a rule of thumb, a value of GVIF$^{(1/(2.Df))}$ < 2 indicates no substantial multicollinearity. While `imdb_rating` and `avg_director_score` show slighly elevated values, they remain within an acceptable range, suggesting that multicollinearity is not a significant concern for our model (`final_model`)'s stability.
+
+
+### Model Diagnostics
+
+Finally, we evaluate the validity of our regression model through residual diagnostics. This condition of assessment includes linearity, constant variance (homoscedasticity), and normality. 
+
+
+```{r Diagnosis, fig.width=6, fig.height=3, results='hide', message=FALSE, warning=FALSE}
+
+# Linearity, Constant Variance
+ggplot(data=final_model, aes(x=.fitted, y=.resid))+
+  geom_point() +
+  geom_hline(yintercept = 0, linetype="dashed")+
+  xlab("Predicted Value") +
+  ylab("Residuals")
+
+model_diag <- augment(final_model)
+ggplot(model_diag, aes(x=runtime, y=.resid))+
+  geom_point() +
+  geom_hline(yintercept = 0, linetype="dashed")+
+  xlab("Runtime") +
+  ylab("Residuals")
+
+# Normality
+hist(final_model$residuals, main = "Histogram of Residuals", xlab="Residuals", ylab="Count")
+qqnorm(final_model$residuals)
+qqline(final_model$residuals)
+
+```
+
+First, to assess linearity and constant variance (homoscedasticity), we plot residuals against fitted values; the random scatter of residuals around zero suggests that the linearity and constant variance assumptions are met.
+Given the relatively weak linear relationship observed between `runtime` and `audience_score` in our EDA, I performed a specific residual analysis for `runtime` to ensure that it does not introduce inconstant variance. The scatter plot confirms that residuals are evenly distributed, verifying constant variance. Finally, we assess the normality of residuals using a histogram and a normal Q-Q plot. The histogram shows a nearly bell-shaped distribution, and the Q-Q plot indicates that the majority of samples follow the diagonal line. These diagnostics confirm that the final model satisfies the core assumptions of linear regression.
+
+
+### Interpretation of the Primary Predictor
+
+
+```{r correlation cofficients of the final model}
+summary(final_model)
+```
+
+The final model is represented by the following regression equation:
+
+$$
+\begin{aligned}
+\widehat{audience\_score} = &-5.945 \\
+&+ 0.914\cdot\text{title\_type:Feature Film} - 3.656\cdot\text{title\_type:TV Movie} \\
+&- 0.026\cdot\text{runtime} + 4.73\cdot\text{imdb\_rating} + 0.023\cdot\text{critics\_score} \\
+&+ 12.187\cdot\text{audience\_rating:Upright} + 3.627\cdot\text{best\_pic\_nom:yes} \\
+&+ 0.498\cdot\text{avg\_director\_score}
+\end{aligned}
+$$
+
+While our final model incorporates several significant predictors, I specifically focus on `avg_director_score` to address the core research question. The coefficient for `avg_director_score` is 0.49778 (p-value < 2e-16). This indicates that, holding all other variable constant, each one-unit increase in a director's average historical audience score is associated with an average increase of approximately 0.498 points in the `audience_score` of their subsequent movies. The extremely small p-value confirms that `avg_director_score` is a statistically significant predictor audience reception. 
+
+To further validate this finding, I constructed a 95% confidence interval for the `avg_director_score` coefficient: 
+
+$$ CI = 0.498 \pm (t^* \times SE) = 0.498 \pm 1.96 \times 0.024 = [0.451 ,0.545] $$
+
+We are 95% confident that the true population parameter $\beta$ for the effect of `avg_director_score` on `audience_score` lies between 0.451 and 0.545 when controlling for other variables in the final model. Based on this interval, we can conclude that the relationship is positive and statistically significant, as the interval does not contain zero.
+
+
+
+* * *
+
+## Part 5: Prediction
+
+To evaluate the model's predictive performance beyond the original dataset, I applied it to two 2016 films: *Arrival*, *Sully*, and one 2014 film: *Interstellar*. (Data source: See references section)
+
+```{r random hollywood movie relased in 2016 with no previous director score}
+# Arrival : 83 audience score
+
+std_avg_director_score <- mean(movies$avg_director_score, na.rm=TRUE)
+
+arrival <- data.frame(
+  title_type = factor("Feature Film", levels = levels(movies$title_type)),
+  runtime=116, imdb_rating=7.9, critics_score=94, 
+  audience_rating= factor("Upright", levels = levels(movies$audience_rating)),
+  best_pic_nom=factor("yes", levels = levels(movies$best_pic_nom)), 
+  avg_director_score=std_avg_director_score
+)
+
+predict(final_model, newdata=arrival, interval="prediction", level=0.95)
+```
+$$ E_i = y_i - \hat{y_i} = 83 - 78 = 5 $$
+For *Arrival*, due to the lack of historical data for its director, I utilized the sample mean of `avg_director_score`. The resulting residual of __5__ indicates that the model underestimated the audience score by 5 points. Although this film falls outside the temporal range of the training dataset and lacks historical director data, the prediction remains reasonable given the model's Residual Standard Error (RSE) of 5.38. Specifically, The 95% prediction interval is __[67.5, 89.2]__. This suggests that even in the absence of director-specific metrics, other significant predictors - such as `imdb_rating` and `audience_rating` - contribute to the model's predictive utility. [1]
+
+
+```{r random hollywood movie relased in 2016 with previous director score}
+# Sully : 84 audience score
+
+clint_avg <- movies %>%
+  filter(director == "Clint Eastwood") %>%
+  summarise(mean_score = mean(audience_score, na.rm=TRUE)) %>%
+  pull(mean_score)
+
+
+sully <- data.frame(
+  title_type = factor("Feature Film", levels = levels(movies$title_type)),
+  runtime=96, imdb_rating=7.4, critics_score=85, 
+  audience_rating= factor("Upright", levels = levels(movies$audience_rating)),
+  best_pic_nom=factor("no", levels = levels(movies$best_pic_nom)), 
+  avg_director_score=clint_avg
+)
+
+predict(final_model, newdata=sully, interval="prediction", level=0.95)
+
+```
+
+$$ E_i = y_i - \hat{y_i} = 84 - 65 = 19 $$
+
+For *Sully*, I utilized the director's specific historical average derived from the dataset. The model predicted an audience score of 65 with 95% prediction interval of __[53.9, 75.3]__. However, the actual audience score was 84, resulting in a substantial residual of 19, which places the observed value well outside the prediction interval. Given that `avg_director_score` (based on historical values of 38 and 54 for this particular director) is a statistically significant predictor, the model's conservative estimation suggests that it is highly sensitive to the director's historical average. In the data set, the director's previous audience score is 38, 54, the model underestimated the director's audience score for this new project. This result indicates that while historical performance is a valuable predictor, it cannot fully account for the complex, dynamic factors influencing a film's reception. To enhance the model's predictive power, future iterations would require more longitudinal data points per director to better capture their performance trajectories, as well as a wider temporal scope beyond the 1970-2014 period. [2]
+
+
+```{r random hollywood movie relased in 2014 with previous director score}
+# Interstella : 87
+
+nolan_avg <- movies %>%
+  filter(director == "Christopher Nolan") %>%
+  summarise(mean_score = mean(audience_score, na.rm=TRUE)) %>%
+  pull(mean_score)
+
+
+interstellar <- data.frame(
+  title_type = factor("Feature Film", levels = levels(movies$title_type)),
+  runtime=169, imdb_rating=8.7, critics_score=73, 
+  audience_rating= factor("Upright", levels = levels(movies$audience_rating)),
+  best_pic_nom=factor("no", levels = levels(movies$best_pic_nom)), 
+  avg_director_score=nolan_avg
+)
+
+predict(final_model, newdata=interstellar, interval="prediction", level=0.95)
+
+```
+$$ E_i = y_i - \hat{y_i} = 87 - 92 = -5 $$
+
+To conclude our predictive evaluation, I tested the model on *Interstellar* (2014), a film released within the dataset's timeframe with a director whose historical performance is well-documented. The model predicted an `audience_score` of 92 with a 95% prediction interval __[81.2, 102.6]__. The actual score was 87 results in a residual of __-5__, which falls well within the 
+model's `Residual Standard Error (RSE)` of 5.38, this discrepancy falls well within the expected range of model error. This suggests that when applied to data points similar to those in the training set (in-sample prediction), the model maintains a robust level of accuracy.
+The contrast between this result and the larger residuals observed in out-of-sample tests (*Arrival* and *Sully*) confirms that the model's predictive power is highly reliable within its intended domain but requires cautious interpretation when extrapolated to new temporal contexts. [3]
+
+
+* * *
+
+## Part 6: Conclusion
+
+
+This analysis explored the determinants of movie audience reception, with a primary focus on evaluating whether a director's historical performance (`avg_director_score`) serves as a reliable predictor of future success. Through exploratory data analysis and the construction of a parsimonious multiple linear regression model, we demonstrated that while variables like `imdb_rating` and `critics_score` are strong indicators, a director's past audience reception remains a statistically significant predictor of a film's audience score.
+
+The model performed reliably within the temporal scope of the training dataset (1970-2014). Interestingly, even when historical director data was unavailable (e.g., *Arrival*), the model maintained predictive utility by leveraging other robust indicators such as `imdb_rating` and `critics_score`. However, our comparative analysis of *Sully* and *Interstellar* revealed that even when historical director data is available, the model's accuracy varies; *Interstellar* fell within the model's expected range, whereas *Sully* presented a significantly larger residual. This suggests that while `avg_director_score` acts as a valuable baseline predictor, it cannot fully account for exceptional performances that deviate from a director's historical trend. 
+
+Reflecting on these finding,s this study has two primary limitations. First, the `avg_director_score` metric is susceptible to self-correlation, as many directors in the dataset have only a single film record, causing the predictor to be highly dependent on individual observations. Second, as observed in our out-of-sample tests, the model's predictive power diminishes when extrapolated beyond the training period or when faced with unique cinematic projects that transcend historical trends. Future research could enhance this model by incorporating qualitative features, such as social media sentiment or production budget, and by utilizing longitudinal datasets to better isolate a director's true performance trajectory.
+
+
+
+### Data References : Prediction Samples
+
+The actual audience scores and movie metadata used for the predictive validation in Part 5 were retrieved from the following sources:
+
+
+[1] *Arrival* (2016) movie page:
+
+- Rotten Tomatoes: https://www.rottentomatoes.com/m/arrival_2016 
+- IMDb: https://www.imdb.com/title/tt2543164/
+
+
+[2] *Sully* (2016) movie page:
+
+- Rotten Tomatoes: https://www.rottentomatoes.com/m/sully#media-info
+- IMDb: https://www.imdb.com/title/tt3263904/ 
+
+
+[3] *Interstellar* (2014) movie page:
+
+- Rotten Tomatoes: https://www.rottentomatoes.com/m/interstellar_2014
+- IMDb: https://www.imdb.com/title/tt0816692/
