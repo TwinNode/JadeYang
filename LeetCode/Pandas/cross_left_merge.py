@@ -1,8 +1,10 @@
 import pandas as pd
 def students_and_examinations(students, subjects, examinations):
     df = students.merge(subjects, how='cross')
-    df = df.merge(examinations, on=['student_id', 'subject_name'], how='left')
+    count = examinations.groupby(['student_id', 'subject_name']).size().reset_index(name='attended_exams')
 
-    result = df.groupby(['student_id', 'student_name', 'subject_name'], as_index=False)['noname'].count()
+    result = df.merge(count, on=['student_id', 'subject_name'], how='left')
 
-    return result.rename(columns={'noname':'attended_exams'})
+    result['attended_exams'] = result['attended_exams'].fillna(0).astype(int)
+
+    return result.sort_values(by=['student_id', 'student_name', 'subject_name'])
