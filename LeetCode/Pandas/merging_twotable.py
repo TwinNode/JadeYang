@@ -1,0 +1,3 @@
+import pandas as pd
+def combine_two_talbes(person: pd.DataFrame, address: pd.DataFrame) -> pd.DataFrame:
+    return pd.merge(left=person, right=address, on='personId', how='left')[['firstName', 'lastName', 'city', 'state']]
